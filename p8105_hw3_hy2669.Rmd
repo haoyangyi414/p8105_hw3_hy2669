@@ -47,3 +47,69 @@ instacart %>%
   geom_point()+
   theme(axis.text.x = element_text(angle=90,vjust=0.5,hjust=1))
 ```
+
+```{r}
+instacart %>%
+  filter(aisle %in% c("baking ingredients","dog food care","packaged vegetables fruits")) %>%
+  group_by(aisle) %>%
+  count(product_name) %>%
+  mutate(rank = min_rank(desc(n))) %>%
+  filter(rank < 4) %>%
+  arrange(aisle,rank) %>%
+  knitr::kable()
+```
+
+```{r}
+instacart %>%
+  filter(product_name %in% c("Pink Lady Apples","Coffee Ice Cream")) %>%
+  group_by(product_name, order_dow) %>%
+  summarize(mean_hour = mean(order_hour_of_day)) %>%
+  pivot_wider(names_from = order_dow,
+              values_from = mean_hour)
+```
+
+## Problem 2
+```{r tidy the dataset,warning=F}
+accel_df=read_csv('./data/accel_data.csv') %>% 
+  janitor::clean_names() %>% 
+  pivot_longer(
+    cols = starts_with("activity"),
+    names_to = 'minute',
+    values_to = "activity",
+    names_prefix = "activity_") %>% # represent the count of activity 1-1440 variables of each minute in column
+  mutate(weekday_vs_weekend = day %in% c("Sunday","Saturday"),
+           weekday_vs_weekend = case_when(weekday_vs_weekend ~ "weekend",
+                                          !weekday_vs_weekend ~ "weekday")) %>% # create new variable weekday_vs_weekend
+  mutate(weekday_vs_weekend = as.factor(weekday_vs_weekend),
+         minute = as.numeric(minute),
+         week = as.character(week),
+         week = forcats::fct_relevel(week),
+         day = as.factor(day),
+         day = forcats::fct_relevel(day,c("Monday","Tuesday","Wednesday","Thursday",
+          "Friday", "Saturday","Sunday"))) %>%  # convert variable classes to be reasonable.
+  group_by(week) %>%
+  arrange(day,.by_group = TRUE) %>% # rearrange day variable so that is starts from Monday to Sunday.
+  select(-day_id) %>% 
+  left_join(distinct(.,week,day) %>%
+            ungroup() %>%
+            mutate(day_id = 1, day_id = cumsum(day_id))) # reassign day_id to match the sequence of day variable. For example, id of Monday in week 1 is 1, id of Monday in week 2 is 8.
+  head(accel_df)
+  tail(accel_df)
+```
+  The resulting dataset has 6 variables which are week(1 to 5), day_id (1 to 35), day(Monday,Tuesday..Sunday), minute in each day(1 to 1440), activity and weekday_vs_weekend. There are `r nrow(accel_df)` observations of these variables. Week,day,weekday_vs_weekend are factor variables, day_id, minute, activity are numeric factors.
+
+```{r total activity}
+accel_df %>% 
+  group_by(week,day) %>% 
+  summarize(total_activity_day = sum(activity,na.rm=T)) %>% 
+  mutate(total_activity_day = round(total_activity_day)) %>%
+  pivot_wider(names_from = week,
+              names_prefix = "week_",
+              values_from = total_activity_day) %>% 
+  knitr::kable()
+```
+  The table containing total daily activities on each day of weeks are created. The table shows that total daily activities on Saturday and Sunday decrease rapidly in week 4, other days in week 4 also show decrease in total activities. Among 7 days of a week, Monday,Friday,Saturday and Sunday have apparent trends from week 1 to 5, Tuesday and Wednesday have relatively steady trends.
+
+```{r}
+accel_df %>%
+
