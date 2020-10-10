@@ -9,7 +9,8 @@ output: github_document
 library(p8105.datasets)
 library(tidyverse)
 library(patchwork)
-library(rnoaa)
+library(ggridges)
+library(hexbin)
 knitr::opts_chunk$set(
   fig.width = 8,
   fig.asp=0.7,
@@ -74,13 +75,13 @@ instacart %>%
 accel_df=read_csv('./data/accel_data.csv') %>% 
   janitor::clean_names() %>% 
   pivot_longer(
-    cols = starts_with("activity"),
+    cols = starts_with('activity'),
     names_to = 'minute',
-    values_to = "activity",
-    names_prefix = "activity_") %>% # represent the count of activity 1-1440 variables of each minute in column
-  mutate(weekday_vs_weekend = day %in% c("Sunday","Saturday"),
-           weekday_vs_weekend = case_when(weekday_vs_weekend ~ "weekend",
-                                          !weekday_vs_weekend ~ "weekday")) %>% # create new variable weekday_vs_weekend
+    values_to = 'activity',
+    names_prefix = 'activity_') %>% # represent the count of activity 1-1440 variables of each minute in column
+  mutate(weekday_vs_weekend = day %in% c('Saturday','Sunday'),
+           weekday_vs_weekend = case_when(weekday_vs_weekend ~ 'weekend',
+                                          !weekday_vs_weekend ~ 'weekday')) %>% # create new variable weekday_vs_weekend
   mutate(weekday_vs_weekend = as.factor(weekday_vs_weekend),
          minute = as.numeric(minute),
          week = as.factor(week),
@@ -101,7 +102,7 @@ accel_df %>%
   summarize(total_activity_day = sum(activity)) %>% 
   mutate(total_activity_day = round(total_activity_day)) %>%
   pivot_wider(names_from = week,
-              names_prefix = "week_",
+              names_prefix = 'week_',
               values_from = total_activity_day) %>% 
   knitr::kable()
 ```
@@ -116,14 +117,82 @@ accel_df %>%
   group_by(day_id,hour_oneday) %>%
   mutate(activity_hour = sum(activity)) %>% 
   ggplot(aes(x = hour_oneday,y = activity_hour, colour = day, group = day_id))+
-  stat_smooth(alpha = 0.5, se = F,geom = 'line',method = 'gam')+
-  scale_x_continuous(name = 'hour', limits = c(0,24),breaks = seq(0,24,3))+
-  scale_y_continuous(name = 'Activity',trans = 'sqrt',limits = c(0,60000),
-                     breaks = c(0,2000,10000,40000))+
+  stat_smooth(alpha = 0.7, se = F,geom = 'line',method = 'gam')+
+  scale_x_continuous(name = 'Hour', limits = c(0,24),breaks = seq(0,24,3))+
+  scale_y_continuous(name = 'Activity',trans = 'sqrt',limits = c(0,70000),
+                     breaks = c(0,2000,10000,40000))+ # modify the scale of y to make the curve more concentrated
   labs(title = 'Smooth line of 24-hour activity for 35 days')+
-  theme(legend.position = 'bottom')+
-  viridis::scale_color_viridis(discrete = T, name = '')+
-  guides(color = guide_legend(nrow =1))
+  theme(legend.position = 'bottom')+guides(color = guide_legend(nrow =1)) # put legend at the bottom and in a row.
 ```
+  
   In this graph, most of smoothed lines overlap at 0-6 am and 9-12 pm which indicates that the total hourly activity in this period may follow a daily routine: increase in 0-6 am and decrease in 9-12 pm. Hourly activity reach the peak in daytime, around 8-9 am and 4-7 pm. In 1-3 pm there is a fluctuation, most of lines decrease and recover after 3 pm. Sunday, Monday and Friday have relatively higher and steady peaks.
   
+## Problem 3
+```{r }
+data("ny_noaa")
+noaa_df = ny_noaa %>%
+    separate(date,into=c("year","month","day"),sep="-",remove = F) %>% # separate date variable into year, month and day.
+    mutate(year = as.numeric(year), month = as.numeric(month),day = as.numeric(day),
+           tmin = as.numeric(tmin), tmax = as.numeric(tmax),
+           tmin = tmin/10, tmax = tmax/10,
+           prcp = prcp/10,
+           snow = as.integer(snow)) # Convert the type of variables, change the unit of temperature from tenths of degree C into degree C. Change the unit of precipitation from tenths of mm into mm. 
+skimr::skim_without_charts(noaa_df)
+  most_common<-function(x){
+    uniquevalue<-unique(x)
+    uniquevalue[which.max(tabulate(match(x,uniquevalue)))]
+  } # create a funcition to find the most common value of snow
+```
+  
+  The dataset contains data from `r min(noaa_df$date) ` to `r max(noaa_df$date) `,of `r n_distinct(noaa_df$id)` stations. It contains `r ncol(noaa_df)` variables and `r nrow(noaa_df)` observations. The key variables are id-id of weather stations, date-date of observations, prcp-precipitation(mm), snow-snowfall(mm), snwd-snow depth(mm), tmin and tmax-minimum and maximum temperature(degrees C) of the day. Missing data is a significant issue in temperature since the complete rate of tmax,tmin variables is only 0.563,which indicates that almost a half of data will be lost if we choose to remove NA. Also, the missing of snowfall and snow depth values is considerable.
+  For snowfall, the most commonly observed values is `r most_common(noaa_df$snow)`mm. Because NY only have snow at Winter, for the rest of a year there is no snow in NY, which means snowfall is 0 mm.
+  
+```{r plot of avg tmax,warning=F}
+plot_jan = noaa_df %>%
+  filter(month %in% c(1)) %>%
+  group_by(id,year,month) %>% # group by distinct stations, years and months
+  summarize(avg_tmax = mean(tmax,na.rm = TRUE)) %>% # create average of maximum of temperature.
+  ggplot(aes(x = year,y = avg_tmax,color = id, group = id))+
+  geom_path(alpha=0.6)+geom_point(alpha=0.6)+ 
+  scale_x_continuous(limits = c(1981,2010),breaks = seq(1981,2010,2))+
+  theme(legend.position = "none")+ # do not need to show legends, legends also cause the figure become too large to display.
+  labs(title = 'Average max temperature in January from 1981 to 2010')+
+  xlab('Year')+ylab('Average max temperature in January')
+plot_Jul = noaa_df %>%
+  filter(month %in% c(7)) %>% 
+  group_by(id,year,month) %>% 
+  summarize(avg_tmax = mean(tmax,na.rm = TRUE)) %>%
+  ggplot(aes(x = year,y = avg_tmax,color = id, group = id))+
+  geom_path(alpha=0.5)+geom_point(alpha=0.2)+
+  scale_x_continuous(limits = c(1981,2010),breaks = seq(1981,2010,2))+
+  theme(legend.position = "none")+ 
+  labs(title = 'Average highest temperature in July from 1981 to 2010')+
+  xlab('Year')+ylab('Average highest temperature in July')
+plot_jan/plot_Jul
+```
+  
+  For January, average highest temperatures from 1981 to 2010 mostly fall in -7.5 to 5 degree C. Usually the average highest temperatures do not exceed the range from -8 to 8 degree C .Outliers appear in 1998,1999,2004 when one or several station observed exceptionally higher average of highest temperatures than other stations, and in 1982,1984,1988,1989,1990,1996,2004,2007 when one or several stations observed exceptionally lower average of highest temperatures than other stations.
+  For July, average highest temperatures from 1981 to 2010 mostly fall in 25 to 30 degree C. Usually the average highest temperatures do not exceed the range from 22.5 to 31 degree C. Outliers appear in 1981,1983,1984,1988,1989,1990,1996,2004,2007 when one or several stations observed exceptionally lower average of highest temperatures than other stations.
+  Compared with January, the trend of July is more steady(less fluctuate), with no significant change among these 40 years.
+```{r tmax vs tmin and dist of snow,warning=F}
+plot_vs = noaa_df %>%
+  ggplot(aes(x = tmin, y= tmax))+
+  geom_hex(bins = 50,col = "grey",alpha=0.9)+ #create a hexplot to show tmin vs tmax
+  scale_x_continuous(breaks = seq(-60,60,10),limits = c(-60,60))+
+  scale_y_continuous(breaks = seq(-40,60,10))+
+  labs(title = "Limits of temperature in 1981-2010")+
+  xlab("Lowest temperature (C)")+ ylab("Highest temperature (C)")
+plot_dist = noaa_df %>%
+  filter(snow > 0 & snow < 100) %>%
+  ggplot(aes(x = snow),group = as.factor(year))+ 
+  geom_density_ridges(aes(y = year,group = as.factor(year)),alpha = 0.8)+ 
+  # use density_ridges to show distributions of snow value of each year.
+  scale_x_continuous(limits = c(0,100),breaks = seq(0,100,20))+
+  scale_y_continuous(breaks = seq(1981,2010,2))+
+  labs(title = "Snowfall >0 & <100 in 40 years")+
+  xlab('Snowfall value (mm)')+ ylab("Year")
+plot_vs+plot_dist  
+```
+  
+  The hexplot shows that the lowest and the highest temperature of one day nearly have a positive correlation. Top common combinations of the lowest and highest temperatures are those light green and yellow hexes,approximately located at (0,5) (0,8) (10,25) (15,27).
+  The density ridge shows that the distribution of snowfall value >0 and <100 changed slightly from 1981 to 2010, the major change is the peak of distribution. From 1981 to 1999, the peak is located at around 25 mm. From 2001 to 2010, the peak starts to move to a lower snowfall value and it's located at around 9 mm in 2010. Also, the density of snowfall >20 mm becomes flatten in 2008-2010. This change indicates the trend of global warming and decrease of snowfall during that period.
